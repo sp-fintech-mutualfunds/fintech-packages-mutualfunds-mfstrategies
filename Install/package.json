@@ -1,0 +1,43 @@
+{
+	"name" : "MfStrategies",
+	"display_name" : "Mutual Fund Strategies",
+	"description" : "<p>Mutual Fund Strategies</p>",
+	"module_type" : "packages",
+	"app_type" : "fintech",
+	"category" : "mutualfunds",
+	"version" : "0.0.0",
+	"repo" : "https://github.com/sp-fintech-mutualfunds/fintech-packages-mutualfunds-mfstrategies",
+	"class" : "Apps\\Fintech\\Packages\\Mf\\Strategies\\MfStrategies",
+	"dependencies" : 
+	{
+		"core" : 
+		{
+			"name" : "Core",
+			"version" : "0.0.0-rc.9",
+			"repo" : "https://github.com/sp-framework/core"
+		},
+		"apptype" : 
+		{
+			"name" : "Fintech",
+			"version" : "0.3.0",
+			"repo" : "https://github.com/sp-fintech/fintech"
+		},
+		"middlewares" : [],
+		"externals" : 
+		{
+			"composer" : 
+			{
+				"require" : []
+			},
+			"config" : 
+			{
+				"allow-plugins" : []
+			},
+			"extra" : 
+			{
+				"patches" : []
+			}
+		}
+	},
+	"settings" : []
+}

@@ -1,0 +1,260 @@
+<?php
+
+namespace Apps\Fintech\Packages\Mf\Strategies\Strategies;
+
+use Apps\Fintech\Packages\Mf\Portfolios\MfPortfolios;
+use Apps\Fintech\Packages\Mf\Strategies\MfStrategies;
+use Apps\Fintech\Packages\Mf\Transactions\MfTransactions;
+
+class Sip extends MfStrategies
+{
+    public $strategyDisplayName = 'SIP';
+
+    public $strategyDescription = 'Perform SIP strategy on a portfolio';
+
+    public $strategyArgs = [];
+
+    public $transactions = [];
+
+    public $transactionsCount = [];
+
+    public $totalTransactionsCount = 0;
+
+    protected $incrementWeek;
+
+    protected $incrementMonth;
+
+    protected $incrementYear;
+
+    protected $incrementAmount = 0;
+
+    protected $totalTransactionsAmount = 0;
+
+    protected $nextTransactionIndex = 1;
+
+    protected $incrementSchedule = 'increment-none';
+
+    protected $transactionPackage;
+
+    protected $portfolioPackage;
+
+    public function init()
+    {
+        $this->strategyArgs = $this->getStategyArgs();
+
+        parent::init();
+
+        return $this;
+    }
+
+    public function processStrategyTransactionsByDate($data, $date)
+    {
+        if (!$this->transactionPackage) {
+            $this->transactionPackage = $this->usePackage(MfTransactions::class);
+        }
+
+        if (!$this->portfolioPackage) {
+            $this->portfolioPackage = $this->usePackage(MfPortfolios::class);
+        }
+
+        if (isset($this->transactions[$date])) {
+            $this->transactions[$date]['portfolio_id'] = (int) $data['portfolio_id'];
+            $this->transactions[$date]['amc_id'] = (int) $data['amc_id'];
+            $this->transactions[$date]['scheme_id'] = (int) $data['scheme_id'];
+            $this->transactions[$date]['amc_transaction_id'] = '';
+            $this->transactions[$date]['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
+            $this->transactions[$date]['via_strategies'] = true;
+
+            if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
+                $this->addResponse(
+                    $this->transactionPackage->packagesData->responseMessage,
+                    $this->transactionPackage->packagesData->responseCode,
+                    $this->transactionPackage->packagesData->responseData ?? []
+                );
+
+                return false;
+            }
+
+            return true;
+        }
+
+        $this->addResponse('Transaction with ' . $date . ' not found!', 1);
+
+        return false;
+    }
+
+    protected function getStategyArgs()
+    {
+        return [
+            'startDate'             => '2001-01-01',//2001-01-01, depending on scheme start date, this will change.
+            'endDate'               => 'today',//today/202x-xx-xx
+            'amount'                => 100,//amount of transaction
+            'schedule'              => ['weekly','monthly'],//weekly/monthly
+            'weekly_days'           => ['0','1','2','3','4','5','6'],//[0-6], if schedule is weekly
+            'monthly_months'        => ['1','2','3','4','5','6','7','8','9','10','11','12'],//[1-12], if schedule is monthly
+            'monthly_day'           => 1,//[1-31], if schedule is monthly
+            'increment_schedule'    => ['increment-none','increment-next','increment-weekly','increment-monthly','increment-yearly'],//none, next, weekly, monthly, yearly
+            'increment_amount'      => 100,//increment to apply
+        ];
+    }
+
+    public function getStrategiesTransactions($data)
+    {
+        try {
+            $startEndDates = (\Carbon\CarbonPeriod::between($data['startDate'], $data['endDate']))->toArray();
+        } catch (\throwable $e) {
+            $this->addResponse('Dates provided are incorrect', 1);
+
+            return false;
+        }
+        // trace([$data]);
+        $this->transactionsCount = ['buy' => 0, 'sell' => 0];
+
+        if (isset($data['increment_schedule']) && $data['increment_schedule'] !== 'increment-none') {
+            $this->incrementSchedule = $data['increment_schedule'];
+        }
+
+        foreach ($startEndDates as $index => $date) {
+            $dateString = $date->toDateString();
+
+            if ($data['schedule'] === 'weekly') {
+                if (in_array($date->dayOfWeek(), $data['weekly_days'])) {
+                    if (!isset($this->transactions[$dateString])) {
+                        $this->transactions[$dateString] = [];
+                    }
+
+                    $this->totalTransactionsCount++;
+                    $this->transactionsCount['buy']++;
+                    $this->transactions[$dateString]['type'] = 'buy';
+                    $this->transactions[$dateString]['date'] = $dateString;
+
+                    if (count($this->transactions) === 1) {
+                        $this->incrementWeek = $date->weekOfYear;
+                        $this->incrementMonth = $date->month;
+                        $this->incrementYear = $date->year;
+
+                        $this->transactions[$dateString]['amount'] = (float) $data['amount'];
+                    } else {
+                        if ($this->incrementSchedule !== 'increment-none') {
+                            $this->transactions[$dateString]['amount'] = $this->getIncrementedAmount($date, $data);
+                        } else {
+                            $this->transactions[$dateString]['amount'] = (float) $data['amount'];
+                        }
+                    }
+
+                    $this->totalTransactionsAmount += $this->transactions[$dateString]['amount'];
+                }
+            } else if ($data['schedule'] === 'monthly') {
+                if (in_array($date->month, $data['monthly_months'])) {
+                    if ($date->day == $data['monthly_day']) {
+                        //If transaction is happening on Sunday, move it to Monday.
+                        if ($date->englishDayOfWeek === 'Sunday') {
+                            $date = $date->addDay();
+                            $dateString = $date->toDateString();
+                        }
+
+                        if (!isset($this->transactions[$dateString])) {
+                            $this->transactions[$dateString] = [];
+                        }
+
+                        $this->totalTransactionsCount++;
+                        $this->transactionsCount['buy']++;
+                        $this->transactions[$dateString]['type'] = 'buy';
+                        $this->transactions[$dateString]['date'] = $dateString;
+
+                        if (count($this->transactions) === 1) {
+                            $this->incrementWeek = $date->weekOfYear;
+                            $this->incrementMonth = $date->month;
+                            $this->incrementYear = $date->year;
+
+                            $this->transactions[$dateString]['amount'] = (float) $data['amount'];
+                        } else {
+                            if ($this->incrementSchedule !== 'increment-none') {
+                                $this->transactions[$dateString]['amount'] = $this->getIncrementedAmount($date, $data);
+                            } else {
+                                $this->transactions[$dateString]['amount'] = (float) $data['amount'];
+                            }
+                        }
+
+                        $this->totalTransactionsAmount += $this->transactions[$dateString]['amount'];
+                    }
+                }
+            }
+        }
+
+        if (count($this->transactions) > 0) {
+            $this->addResponse(
+                'Calculated Transactions',
+                0,
+                [
+                    'total_transactions_count'      => $this->transactionsCount,
+                    'total_transactions_amount'     =>
+                        str_replace('EN_ ',
+                            '',
+                            (new \NumberFormatter('en_IN', \NumberFormatter::CURRENCY))
+                                ->formatCurrency($this->totalTransactionsAmount, 'en_IN')),
+                    'first_date'                    => $this->helper->first($this->transactions)['date'],
+                    'last_date'                     => $this->helper->last($this->transactions)['date'],
+                    'transactions'                  => $this->transactions
+                ]
+            );
+
+            return $this->transactions;
+        }
+
+        $this->addResponse('Error calculating transactions, check dates!', 1);
+    }
+
+    protected function getIncrementedAmount($date, $data)
+    {
+        if ($this->incrementAmount === 0) {
+            $this->incrementAmount = (float) $data['amount'];
+        }
+
+        if ($this->incrementSchedule === 'increment-next') {
+            $this->incrementAmount = $this->nextTransactionIndex * $data['increment_amount'];
+
+            $this->nextTransactionIndex = $this->nextTransactionIndex + 1;
+
+            return (float) $data['amount'] + $this->incrementAmount;
+        } else if ($this->incrementSchedule === 'increment-weekly') {
+            $this->incrementAmount = $this->nextTransactionIndex * $data['increment_amount'];
+
+            if ($this->incrementWeek !== $date->weekOfYear) {
+                $this->incrementWeek = $date->weekOfYear;
+
+                $this->nextTransactionIndex = $this->nextTransactionIndex + 1;
+
+                return (float) $data['amount'] + $this->incrementAmount;
+            }
+
+            return $this->incrementAmount;
+        } else if ($this->incrementSchedule === 'increment-monthly') {
+            $this->incrementAmount = $this->nextTransactionIndex * $data['increment_amount'];
+
+            if ($this->incrementMonth !== $date->month) {
+                $this->incrementMonth = $date->month;
+
+                $this->nextTransactionIndex = $this->nextTransactionIndex + 1;
+
+                return (float) $data['amount'] + $this->incrementAmount;
+            }
+
+            return $this->incrementAmount;
+        } else if ($this->incrementSchedule === 'increment-yearly') {
+            $this->incrementAmount = $this->nextTransactionIndex * $data['increment_amount'];
+
+            if ($this->incrementYear !== $date->year) {
+                $this->incrementYear = $date->year;
+
+                $this->nextTransactionIndex = $this->nextTransactionIndex + 1;
+
+                return (float) $data['amount'] + $this->incrementAmount;
+            }
+
+            return $this->incrementAmount;
+        }
+
+        return (float) $data['amount'];
+    }
+}
