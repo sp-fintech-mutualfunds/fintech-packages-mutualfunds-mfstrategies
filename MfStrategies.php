@@ -50,6 +50,12 @@ class MfStrategies extends BasePackage
 
     protected function checkDataAndInstantiateStrategyClass(&$data)
     {
+        if (!isset($data['portfolio_id'])) {
+            $this->addResponse('Portfolio ID is not provided', 1);
+
+            return false;
+        }
+
         if (!isset($data['strategy_id'])) {
             $this->addResponse('Strategy ID is not provided', 1);
 
@@ -129,6 +135,10 @@ class MfStrategies extends BasePackage
                         $this->portfolioPackage->packagesData->responseData ?? []
                     );
 
+                    $this->basepackages->progress->resetProgress();
+
+                    $this->recalculateStrategyPortfolio($process['args']);
+
                     return false;
                 }
 
@@ -137,6 +147,10 @@ class MfStrategies extends BasePackage
                     $this->strategyClass->packagesData->responseCode,
                     $this->strategyClass->packagesData->responseData ?? []
                 );
+
+                $this->basepackages->progress->resetProgress();
+
+                $this->recalculateStrategyPortfolio($process['args']);
 
                 return false;
             }
@@ -196,9 +210,17 @@ class MfStrategies extends BasePackage
     {
         $data = $args[0];
 
-        $this->newPortfolioId = $this->portfolioPackage->clonePortfolio(['id' => $data['portfolio_id']]);
+        $data['id'] = $data['portfolio_id'];
+
+        $this->newPortfolioId = $this->portfolioPackage->clonePortfolio($data);
 
         if (!$this->newPortfolioId) {
+            $this->addResponse(
+                $this->portfolioPackage->packagesData->responseMessage,
+                $this->portfolioPackage->packagesData->responseCode,
+                $this->portfolioPackage->packagesData->responseData ?? []
+            );
+
             return false;
         }
 

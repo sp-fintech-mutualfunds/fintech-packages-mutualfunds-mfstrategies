@@ -36,7 +36,7 @@ class Sip extends MfStrategies
 
     protected $transactionPackage;
 
-    protected $portfolioPackage;
+    protected $startEndDates;
 
     public function init()
     {
@@ -51,10 +51,6 @@ class Sip extends MfStrategies
     {
         if (!$this->transactionPackage) {
             $this->transactionPackage = $this->usePackage(MfTransactions::class);
-        }
-
-        if (!$this->portfolioPackage) {
-            $this->portfolioPackage = $this->usePackage(MfPortfolios::class);
         }
 
         if (isset($this->transactions[$date])) {
@@ -86,35 +82,22 @@ class Sip extends MfStrategies
     protected function getStategyArgs()
     {
         return [
-            'startDate'             => '2001-01-01',//2001-01-01, depending on scheme start date, this will change.
-            'endDate'               => 'today',//today/202x-xx-xx
-            'amount'                => 100,//amount of transaction
-            'schedule'              => ['weekly','monthly'],//weekly/monthly
-            'weekly_days'           => ['0','1','2','3','4','5','6'],//[0-6], if schedule is weekly
-            'monthly_months'        => ['1','2','3','4','5','6','7','8','9','10','11','12'],//[1-12], if schedule is monthly
-            'monthly_day'           => 1,//[1-31], if schedule is monthly
-            'increment_schedule'    => ['increment-none','increment-next','increment-weekly','increment-monthly','increment-yearly'],//none, next, weekly, monthly, yearly
-            'increment_amount'      => 100,//increment to apply
         ];
     }
 
     public function getStrategiesTransactions($data)
     {
-        try {
-            $startEndDates = (\Carbon\CarbonPeriod::between($data['startDate'], $data['endDate']))->toArray();
-        } catch (\throwable $e) {
-            $this->addResponse('Dates provided are incorrect', 1);
-
+        if (!$this->checkData($data)) {
             return false;
         }
-        // trace([$data]);
+
         $this->transactionsCount = ['buy' => 0, 'sell' => 0];
 
         if (isset($data['increment_schedule']) && $data['increment_schedule'] !== 'increment-none') {
             $this->incrementSchedule = $data['increment_schedule'];
         }
 
-        foreach ($startEndDates as $index => $date) {
+        foreach ($this->startEndDates as $index => $date) {
             $dateString = $date->toDateString();
 
             if ($data['schedule'] === 'weekly') {
@@ -212,49 +195,98 @@ class Sip extends MfStrategies
         }
 
         if ($this->incrementSchedule === 'increment-next') {
-            $this->incrementAmount = $this->nextTransactionIndex * $data['increment_amount'];
+            $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
 
-            $this->nextTransactionIndex = $this->nextTransactionIndex + 1;
+            $this->nextTransactionIndex++;
 
-            return (float) $data['amount'] + $this->incrementAmount;
+            return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-weekly') {
-            $this->incrementAmount = $this->nextTransactionIndex * $data['increment_amount'];
-
             if ($this->incrementWeek !== $date->weekOfYear) {
+                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+
                 $this->incrementWeek = $date->weekOfYear;
 
-                $this->nextTransactionIndex = $this->nextTransactionIndex + 1;
-
-                return (float) $data['amount'] + $this->incrementAmount;
+                $this->nextTransactionIndex++;
             }
 
-            return $this->incrementAmount;
+            return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-monthly') {
-            $this->incrementAmount = $this->nextTransactionIndex * $data['increment_amount'];
-
             if ($this->incrementMonth !== $date->month) {
+                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+
                 $this->incrementMonth = $date->month;
 
-                $this->nextTransactionIndex = $this->nextTransactionIndex + 1;
-
-                return (float) $data['amount'] + $this->incrementAmount;
+                $this->nextTransactionIndex++;
             }
 
-            return $this->incrementAmount;
+            return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-yearly') {
-            $this->incrementAmount = $this->nextTransactionIndex * $data['increment_amount'];
-
             if ($this->incrementYear !== $date->year) {
+                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+
                 $this->incrementYear = $date->year;
 
-                $this->nextTransactionIndex = $this->nextTransactionIndex + 1;
-
-                return (float) $data['amount'] + $this->incrementAmount;
+                $this->nextTransactionIndex++;
             }
 
-            return $this->incrementAmount;
+            return (float) $this->incrementAmount;
         }
 
         return (float) $data['amount'];
+    }
+
+
+    protected function checkData($data)
+    {
+        try {
+            $this->startEndDates = (\Carbon\CarbonPeriod::between($data['startDate'], $data['endDate']))->toArray();
+        } catch (\throwable $e) {
+            $this->addResponse('Dates provided are incorrect', 1);
+
+            return false;
+        }
+
+        if (!isset($data['scheme_id'])) {
+            $this->addResponse('Investment scheme not provided', 1);
+
+            return false;
+        }
+
+        if (!isset($data['amount'])) {
+            $this->addResponse('Please provide amount', 1);
+
+            return false;
+        }
+
+        if (!isset($data['schedule'])) {
+            $this->addResponse('Please provide schedule', 1);
+
+            return false;
+        }
+
+        if ($data['schedule'] === 'monthly' &&
+            (!isset($data['monthly_months']) || !isset($data['monthly_day']))
+        ) {
+            $this->addResponse('Please provide schedule months data', 1);
+
+            return false;
+        }
+
+        if ($data['schedule'] === 'weekly' && !isset($data['weekly_days'])) {
+            $this->addResponse('Please provide schedule weeks', 1);
+
+            return false;
+        }
+
+        if (isset($data['increment_schedule']) &&
+            $data['increment_schedule'] !== 'increment-none' &&
+            !isset($data['increment_amount'])
+        ) {
+            $this->addResponse('Please provide increment schedule amount', 1);
+
+            return false;
+        }
+
+        return true;
     }
 }
