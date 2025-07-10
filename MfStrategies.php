@@ -3,6 +3,7 @@
 namespace Apps\Fintech\Packages\Mf\Strategies;
 
 use Apps\Fintech\Packages\Mf\Portfolios\MfPortfolios;
+use Apps\Fintech\Packages\Mf\Schemes\MfSchemes;
 use Apps\Fintech\Packages\Mf\Strategies\Model\AppsFintechMfStrategies;
 use System\Base\BasePackage;
 
@@ -17,6 +18,8 @@ class MfStrategies extends BasePackage
     protected $strategyClass;
 
     protected $portfolioPackage;
+
+    protected $schemePackage;
 
     protected $progressMethods = [];
 
@@ -307,5 +310,12 @@ class MfStrategies extends BasePackage
     public function removeMfStrategies($data)
     {
         //
+    }
+
+    protected function getSchemeFromAmfiCodeOrSchemeId($data)
+    {
+        $this->schemePackage = $this->usePackage(MfSchemes::class);
+
+        return $this->schemePackage->getSchemeFromAmfiCodeOrSchemeId($data, false);
     }
 }

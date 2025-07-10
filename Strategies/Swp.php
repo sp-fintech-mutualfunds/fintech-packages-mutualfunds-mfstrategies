@@ -55,6 +55,7 @@ class Swp extends MfStrategies
 
         if (isset($this->transactions[$date])) {
             $this->transactions[$date]['portfolio_id'] = (int) $data['portfolio_id'];
+            $this->transactions[$date]['amc_id'] = (int) $data['amc_id'];
             if (isset($data['scheme_id'])) {
                 $this->transactions[$date]['scheme_id'] = (int) $data['scheme_id'];
             } else if (isset($data['amfi_code'])) {
@@ -114,6 +115,7 @@ class Swp extends MfStrategies
             $this->totalTransactionsCount++;
             $this->transactionsCount['buy']++;
             $this->transactions[$data['investmentDate']]['type'] = 'buy';
+            $this->transactions[$data['investmentDate']]['scheme'] = $data['scheme']['name'];
             $this->transactions[$data['investmentDate']]['date'] = $data['investmentDate'];
             $this->transactions[$data['investmentDate']]['amount'] = (float) $data['investmentAmount'];
             $this->totalTransactionsAmounts['buy'] += $this->transactions[$data['investmentDate']]['amount'];
@@ -138,6 +140,7 @@ class Swp extends MfStrategies
                     $this->totalTransactionsCount++;
                     $this->transactionsCount['sell']++;
                     $this->transactions[$dateString]['type'] = 'sell';
+                    $this->transactions[$dateString]['scheme'] = $data['scheme']['name'];
                     $this->transactions[$dateString]['date'] = $dateString;
 
                     if ((isset($data['scheme_id']) && count($this->transactions) === 2) ||
@@ -174,6 +177,7 @@ class Swp extends MfStrategies
                         $this->totalTransactionsCount++;
                         $this->transactionsCount['sell']++;
                         $this->transactions[$dateString]['type'] = 'sell';
+                        $this->transactions[$dateString]['scheme'] = $data['scheme']['name'];
                         $this->transactions[$dateString]['date'] = $dateString;
 
                         if ((isset($data['scheme_id']) && count($this->transactions) === 2) ||
@@ -274,7 +278,7 @@ class Swp extends MfStrategies
         return (float) $data['amount'];
     }
 
-    protected function checkData($data)
+    protected function checkData(&$data)
     {
         try {
             $this->startEndDates = (\Carbon\CarbonPeriod::between($data['startDate'], $data['endDate']))->toArray();
@@ -283,6 +287,7 @@ class Swp extends MfStrategies
 
             return false;
         }
+
         if (!isset($data['amfi_code']) && !isset($data['scheme_id'])) {
             $this->addResponse('Investment scheme not provided', 1);
 
@@ -303,6 +308,7 @@ class Swp extends MfStrategies
             }
         }
 
+        $data['scheme'] = $this->getSchemeFromAmfiCodeOrSchemeId($data);
 
         if (!isset($data['amount'])) {
             $this->addResponse('Please provide amount', 1);

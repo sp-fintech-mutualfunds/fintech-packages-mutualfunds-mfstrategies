@@ -28,7 +28,7 @@ class Sip extends MfStrategies
 
     protected $incrementAmount = 0;
 
-    protected $totalTransactionsAmount = 0;
+    protected $totalTransactionsAmounts = [];
 
     protected $nextTransactionIndex = 1;
 
@@ -56,7 +56,11 @@ class Sip extends MfStrategies
         if (isset($this->transactions[$date])) {
             $this->transactions[$date]['portfolio_id'] = (int) $data['portfolio_id'];
             $this->transactions[$date]['amc_id'] = (int) $data['amc_id'];
-            $this->transactions[$date]['scheme_id'] = (int) $data['scheme_id'];
+            if (isset($data['scheme_id'])) {
+                $this->transactions[$date]['scheme_id'] = (int) $data['scheme_id'];
+            } else if (isset($data['amfi_code'])) {
+                $this->transactions[$date]['amfi_code'] = (int) $data['amfi_code'];
+            }
             $this->transactions[$date]['amc_transaction_id'] = '';
             $this->transactions[$date]['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
             $this->transactions[$date]['via_strategies'] = true;
@@ -91,10 +95,30 @@ class Sip extends MfStrategies
             return false;
         }
 
+        $currencySymbol = '$';
+        if (isset($this->access->auth->account()['profile']['locale_country_id'])) {
+            $country = $this->basepackages->geoCountries->getById((int) $this->access->auth->account()['profile']['locale_country_id']);
+
+            if ($country && isset($country['currency_symbol'])) {
+                $currencySymbol = $country['currency_symbol'];
+            }
+        }
+
         $this->transactionsCount = ['buy' => 0, 'sell' => 0];
+        $this->totalTransactionsAmounts = ['buy' => 0, 'sell' => 0];
 
         if (isset($data['increment_schedule']) && $data['increment_schedule'] !== 'increment-none') {
             $this->incrementSchedule = $data['increment_schedule'];
+        }
+
+        if (isset($data['scheme_id'])) {
+            $this->totalTransactionsCount++;
+            $this->transactionsCount['buy']++;
+            $this->transactions[$data['investmentDate']]['type'] = 'buy';
+            $this->transactions[$data['investmentDate']]['scheme'] = $data['scheme']['name'];
+            $this->transactions[$data['investmentDate']]['date'] = $data['investmentDate'];
+            $this->transactions[$data['investmentDate']]['amount'] = (float) $data['investmentAmount'];
+            $this->totalTransactionsAmounts['buy'] += $this->transactions[$data['investmentDate']]['amount'];
         }
 
         foreach ($this->startEndDates as $index => $date) {
@@ -104,14 +128,24 @@ class Sip extends MfStrategies
                 if (in_array($date->dayOfWeek(), $data['weekly_days'])) {
                     if (!isset($this->transactions[$dateString])) {
                         $this->transactions[$dateString] = [];
+                    } else {
+                        //If you are buying on the day which is also the start day of buy, this will overwrite the buy order,
+                        //to avoid that the workaround is to buy via transact mode and then create strategy of buy
+                        //or the date of buy will be calculated from the next date.
+                        if ($this->transactions[$dateString]['type'] === 'buy') {
+                            continue;
+                        }
                     }
 
                     $this->totalTransactionsCount++;
                     $this->transactionsCount['buy']++;
                     $this->transactions[$dateString]['type'] = 'buy';
+                    $this->transactions[$dateString]['scheme'] = $data['scheme']['name'];
                     $this->transactions[$dateString]['date'] = $dateString;
 
-                    if (count($this->transactions) === 1) {
+                    if ((isset($data['scheme_id']) && count($this->transactions) === 2) ||
+                        (!isset($data['scheme_id']) && count($this->transactions) === 1)
+                    ) {
                         $this->incrementWeek = $date->weekOfYear;
                         $this->incrementMonth = $date->month;
                         $this->incrementYear = $date->year;
@@ -125,7 +159,7 @@ class Sip extends MfStrategies
                         }
                     }
 
-                    $this->totalTransactionsAmount += $this->transactions[$dateString]['amount'];
+                    $this->totalTransactionsAmounts['buy'] += $this->transactions[$dateString]['amount'];
                 }
             } else if ($data['schedule'] === 'monthly') {
                 if (in_array($date->month, $data['monthly_months'])) {
@@ -143,9 +177,12 @@ class Sip extends MfStrategies
                         $this->totalTransactionsCount++;
                         $this->transactionsCount['buy']++;
                         $this->transactions[$dateString]['type'] = 'buy';
+                        $this->transactions[$dateString]['scheme'] = $data['scheme']['name'];
                         $this->transactions[$dateString]['date'] = $dateString;
 
-                        if (count($this->transactions) === 1) {
+                        if ((isset($data['scheme_id']) && count($this->transactions) === 2) ||
+                            (!isset($data['scheme_id']) && count($this->transactions) === 1)
+                        ) {
                             $this->incrementWeek = $date->weekOfYear;
                             $this->incrementMonth = $date->month;
                             $this->incrementYear = $date->year;
@@ -159,7 +196,7 @@ class Sip extends MfStrategies
                             }
                         }
 
-                        $this->totalTransactionsAmount += $this->transactions[$dateString]['amount'];
+                        $this->totalTransactionsAmounts['buy'] += $this->transactions[$dateString]['amount'];
                     }
                 }
             }
@@ -171,11 +208,17 @@ class Sip extends MfStrategies
                 0,
                 [
                     'total_transactions_count'      => $this->transactionsCount,
-                    'total_transactions_amount'     =>
+                    'total_transactions_amount'     => 'Buy: ' . $currencySymbol .
                         str_replace('EN_ ',
                             '',
                             (new \NumberFormatter('en_IN', \NumberFormatter::CURRENCY))
-                                ->formatCurrency($this->totalTransactionsAmount, 'en_IN')),
+                                ->formatCurrency($this->totalTransactionsAmounts['buy'], 'en_IN')) .
+                        ' Sell: ' . $currencySymbol .
+                        str_replace('EN_ ',
+                            '',
+                            (new \NumberFormatter('en_IN', \NumberFormatter::CURRENCY))
+                                ->formatCurrency($this->totalTransactionsAmounts['sell'], 'en_IN'))
+                    ,
                     'first_date'                    => $this->helper->first($this->transactions)['date'],
                     'last_date'                     => $this->helper->last($this->transactions)['date'],
                     'transactions'                  => $this->transactions
@@ -236,7 +279,7 @@ class Sip extends MfStrategies
     }
 
 
-    protected function checkData($data)
+    protected function checkData(&$data)
     {
         try {
             $this->startEndDates = (\Carbon\CarbonPeriod::between($data['startDate'], $data['endDate']))->toArray();
@@ -246,8 +289,30 @@ class Sip extends MfStrategies
             return false;
         }
 
-        if (!isset($data['scheme_id'])) {
+        if (!isset($data['amfi_code']) && !isset($data['scheme_id'])) {
             $this->addResponse('Investment scheme not provided', 1);
+
+            return false;
+        }
+
+        if (isset($data['scheme_id'])) {
+            if (!isset($data['investmentDate']) || !isset($data['investmentAmount'])) {
+                $this->addResponse('Investment date/amount not provided', 1);
+
+                return false;
+            }
+
+            if ((\Carbon\Carbon::parse($data['startDate']))->lt((\Carbon\Carbon::parse($data['investmentDate'])))) {
+                $this->addResponse('Start date cannot be before investment date', 1);
+
+                return false;
+            }
+        }
+
+        $data['scheme'] = $this->getSchemeFromAmfiCodeOrSchemeId($data);
+
+        if (!$data['scheme']) {
+            $this->addResponse('Please provide correct scheme amfi code or scheme id', 1);
 
             return false;
         }
