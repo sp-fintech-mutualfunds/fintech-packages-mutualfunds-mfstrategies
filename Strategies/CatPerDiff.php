@@ -49,151 +49,140 @@ class CatPerDiff extends MfStrategies
 
     public function processStrategyTransactionsByDate($data, $date)
     {
-        // $this->generateTransaction($data, $date);
+        if (!$this->categoriesPackage) {
+            $this->categoriesPackage = $this->usePackage(MfCategories::class);
+        }
 
-        // if ($date === $this->helper->lastKey($this->transactions)) {
-        //     trace([$this->transactions]);
-        // }
-        try {
-            if (!$this->categoriesPackage) {
-                $this->categoriesPackage = $this->usePackage(MfCategories::class);
+        $this->portfolioPackage = $this->usePackage(MfPortfolios::class);
+        if ($this->helper->firstKey($this->transactions) === $date) {
+            $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);
+        }
+        $this->portfolio = $this->portfolioPackage->getPortfolioById($data['portfolio_id']);
+        $this->transactions['initial_transactions'] = $this->portfolio['transactions'];
+
+        if (!$this->schemePackage) {
+            $this->schemePackage = $this->usePackage(MfSchemes::class);
+        }
+
+        if (!isset($this->schemes[$data['first_scheme']])) {
+            $scheme = $this->schemePackage->getMfTypeByAmfiCode((int) $data['first_scheme']);
+
+            if (!$scheme) {
+                $this->addResponse('Scheme with amfi code for first scheme not found', 1);
+
+                return false;
             }
 
-            $this->portfolioPackage = $this->usePackage(MfPortfolios::class);
-            if ($this->helper->firstKey($this->transactions) === $date) {
+            $this->schemes[$data['first_scheme']] = $this->schemePackage->getSchemeById((int) $scheme['id']);
+        }
+
+        if (!isset($this->schemes[$data['second_scheme']])) {
+            $scheme = $this->schemePackage->getMfTypeByAmfiCode((int) $data['second_scheme']);
+
+            if (!$scheme) {
+                $this->addResponse('Scheme with amfi code for first scheme not found', 1);
+
+                return false;
+            }
+
+            $this->schemes[$data['second_scheme']] = $this->schemePackage->getSchemeById((int) $scheme['id']);
+        }
+
+        $firstSchemeValue =
+            numberFormatPrecision(
+                $this->schemes[$data['first_scheme']]['navs']['navs'][$date]['nav'] * $this->portfolio['investments'][$data['first_scheme']]['units'], 2
+            );
+        $secondSchemeValue =
+            numberFormatPrecision(
+                $this->schemes[$data['second_scheme']]['navs']['navs'][$date]['nav'] * $this->portfolio['investments'][$data['second_scheme']]['units'], 2
+            );
+        $categoryDiff = $this->categoriesPackage->calculateCategoriesPercentDiff($firstSchemeValue, $secondSchemeValue);
+
+        $thresholdPercent = (float) $data['threshold_percent'];
+
+        if ($categoryDiff > $thresholdPercent) {
+            $this->transactions[$date]['categoryDiff'] = $categoryDiff;
+            $this->transactions[$date]['firstSchemeValue'] = $firstSchemeValue;
+            $this->transactions[$date]['secondSchemeValue'] = $secondSchemeValue;
+
+            if ($firstSchemeValue > $secondSchemeValue) {
+                $sellScheme = $data['first_scheme'];
+                $buyScheme = $data['second_scheme'];
+                $diff = numberFormatPrecision(abs($secondSchemeValue - $firstSchemeValue) / 2, 2);
+            } else if ($secondSchemeValue > $firstSchemeValue) {
+                $sellScheme = $data['second_scheme'];
+                $buyScheme = $data['first_scheme'];
+                $diff = numberFormatPrecision(abs($firstSchemeValue - $secondSchemeValue) / 2, 2);
+            }
+
+            $this->transactionPackage = $this->usePackage(MfTransactions::class);
+
+            $sellTransaction = [];
+            $sellTransaction['type'] = 'sell';
+            $sellTransaction['amfi_code'] = $this->schemes[$sellScheme]['amfi_code'];
+            $sellTransaction['scheme'] = $this->schemes[$sellScheme]['id'];
+            $sellTransaction['date'] = $date;
+            $sellTransaction['amount'] = (float) $diff;
+            $sellTransaction['portfolio_id'] = $data['portfolio_id'];
+            $sellTransaction['amc_transaction_id'] = '';
+            $sellTransaction['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
+            $sellTransaction['via_strategies'] = true;
+            $this->transactions[$date]['sell']['scheme'] = $this->schemes[$sellScheme]['name'];
+            $this->transactions[$date]['sell']['nav'] = $this->schemes[$sellScheme]['navs']['navs'][$date]['nav'];
+            $this->transactions[$date]['sell']['units'] = $this->portfolio['investments'][$sellScheme]['units'];
+            $this->transactions[$date]['sell']['transaction_amount'] = (float) $diff;
+
+
+            if (!$this->transactionPackage->addMfTransaction($sellTransaction)) {
                 $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);
+
+                $this->addResponse(
+                    $this->transactionPackage->packagesData->responseMessage,
+                    $this->transactionPackage->packagesData->responseCode,
+                    $this->transactionPackage->packagesData->responseData ?? []
+                );
+
+                return false;
             }
+
+            $this->transactionPackage = $this->usePackage(MfTransactions::class);
+
+            $buyTransaction = [];
+            $buyTransaction['type'] = 'buy';
+            $buyTransaction['amfi_code'] = $this->schemes[$buyScheme]['amfi_code'];
+            $buyTransaction['scheme'] = $this->schemes[$buyScheme]['id'];
+            $buyTransaction['date'] = $date;
+            $buyTransaction['amount'] = (float) $diff;
+            $buyTransaction['portfolio_id'] = $data['portfolio_id'];
+            $buyTransaction['amc_transaction_id'] = '';
+            $buyTransaction['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
+            $buyTransaction['via_strategies'] = true;
+            $this->transactions[$date]['buy']['scheme'] = $this->schemes[$buyScheme]['name'];
+            $this->transactions[$date]['buy']['nav'] = $this->schemes[$buyScheme]['navs']['navs'][$date]['nav'];
+            $this->transactions[$date]['buy']['units'] = $this->portfolio['investments'][$buyScheme]['units'];
+            $this->transactions[$date]['buy']['transaction_amount'] = (float) $diff;
+
+            if (!$this->transactionPackage->addMfTransaction($buyTransaction)) {
+                $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);
+
+                $this->addResponse(
+                    $this->transactionPackage->packagesData->responseMessage,
+                    $this->transactionPackage->packagesData->responseCode,
+                    $this->transactionPackage->packagesData->responseData ?? []
+                );
+
+                return false;
+            }
+
+            $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);
             $this->portfolio = $this->portfolioPackage->getPortfolioById($data['portfolio_id']);
-            $this->transactions['initial_transactions'] = $this->portfolio['transactions'];
-
-            if (!$this->schemePackage) {
-                $this->schemePackage = $this->usePackage(MfSchemes::class);
-            }
-
-            if (!isset($this->schemes[$data['first_scheme']])) {
-                $scheme = $this->schemePackage->getMfTypeByAmfiCode((int) $data['first_scheme']);
-
-                if (!$scheme) {
-                    $this->addResponse('Scheme with amfi code for first scheme not found', 1);
-
-                    return false;
-                }
-
-                $this->schemes[$data['first_scheme']] = $this->schemePackage->getSchemeById((int) $scheme['id']);
-            }
-
-            if (!isset($this->schemes[$data['second_scheme']])) {
-                $scheme = $this->schemePackage->getMfTypeByAmfiCode((int) $data['second_scheme']);
-
-                if (!$scheme) {
-                    $this->addResponse('Scheme with amfi code for first scheme not found', 1);
-
-                    return false;
-                }
-
-                $this->schemes[$data['second_scheme']] = $this->schemePackage->getSchemeById((int) $scheme['id']);
-            }
-
-            $firstSchemeValue =
-                numberFormatPrecision(
-                    $this->schemes[$data['first_scheme']]['navs']['navs'][$date]['nav'] * $this->portfolio['investments'][$data['first_scheme']]['units'], 2
-                );
-            $secondSchemeValue =
-                numberFormatPrecision(
-                    $this->schemes[$data['second_scheme']]['navs']['navs'][$date]['nav'] * $this->portfolio['investments'][$data['second_scheme']]['units'], 2
-                );
-            $categoryDiff = $this->categoriesPackage->calculateCategoriesPercentDiff($firstSchemeValue, $secondSchemeValue);
-
-            $thresholdPercent = (float) $data['threshold_percent'];
-
-            if ($categoryDiff > $thresholdPercent) {
-                $this->transactions[$date]['categoryDiff'] = $categoryDiff;
-                $this->transactions[$date]['firstSchemeValue'] = $firstSchemeValue;
-                $this->transactions[$date]['secondSchemeValue'] = $secondSchemeValue;
-
-                if ($firstSchemeValue > $secondSchemeValue) {
-                    $sellScheme = $data['first_scheme'];
-                    $buyScheme = $data['second_scheme'];
-                    $diff = numberFormatPrecision(abs($secondSchemeValue - $firstSchemeValue) / 2, 2);
-                } else if ($secondSchemeValue > $firstSchemeValue) {
-                    $sellScheme = $data['second_scheme'];
-                    $buyScheme = $data['first_scheme'];
-                    $diff = numberFormatPrecision(abs($firstSchemeValue - $secondSchemeValue) / 2, 2);
-                }
-
-                $this->transactionPackage = $this->usePackage(MfTransactions::class);
-
-                $sellTransaction = [];
-                $sellTransaction['type'] = 'sell';
-                $sellTransaction['amfi_code'] = $this->schemes[$sellScheme]['amfi_code'];
-                $sellTransaction['scheme'] = $this->schemes[$sellScheme]['id'];
-                $sellTransaction['date'] = $date;
-                $sellTransaction['amount'] = (float) $diff;
-                $sellTransaction['portfolio_id'] = $data['portfolio_id'];
-                $sellTransaction['amc_transaction_id'] = '';
-                $sellTransaction['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
-                $sellTransaction['via_strategies'] = true;
-                $this->transactions[$date]['sell']['scheme'] = $this->schemes[$sellScheme]['name'];
-                $this->transactions[$date]['sell']['nav'] = $this->schemes[$sellScheme]['navs']['navs'][$date]['nav'];
-                $this->transactions[$date]['sell']['units'] = $this->portfolio['investments'][$sellScheme]['units'];
-                $this->transactions[$date]['sell']['transaction_amount'] = (float) $diff;
-
-
-                if (!$this->transactionPackage->addMfTransaction($sellTransaction)) {
-                    $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);
-
-                    trace([$this->transactions]);
-                    $this->addResponse(
-                        $this->transactionPackage->packagesData->responseMessage,
-                        $this->transactionPackage->packagesData->responseCode,
-                        $this->transactionPackage->packagesData->responseData ?? []
-                    );
-
-                    return false;
-                }
-
-                $this->transactionPackage = $this->usePackage(MfTransactions::class);
-
-                $buyTransaction = [];
-                $buyTransaction['type'] = 'buy';
-                $buyTransaction['amfi_code'] = $this->schemes[$buyScheme]['amfi_code'];
-                $buyTransaction['scheme'] = $this->schemes[$buyScheme]['id'];
-                $buyTransaction['date'] = $date;
-                $buyTransaction['amount'] = (float) $diff;
-                $buyTransaction['portfolio_id'] = $data['portfolio_id'];
-                $buyTransaction['amc_transaction_id'] = '';
-                $buyTransaction['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
-                $buyTransaction['via_strategies'] = true;
-                $this->transactions[$date]['buy']['scheme'] = $this->schemes[$buyScheme]['name'];
-                $this->transactions[$date]['buy']['nav'] = $this->schemes[$buyScheme]['navs']['navs'][$date]['nav'];
-                $this->transactions[$date]['buy']['units'] = $this->portfolio['investments'][$buyScheme]['units'];
-                $this->transactions[$date]['buy']['transaction_amount'] = (float) $diff;
-
-                if (!$this->transactionPackage->addMfTransaction($buyTransaction)) {
-                    $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);
-
-                    trace([$this->transactions]);
-                    $this->addResponse(
-                        $this->transactionPackage->packagesData->responseMessage,
-                        $this->transactionPackage->packagesData->responseCode,
-                        $this->transactionPackage->packagesData->responseData ?? []
-                    );
-
-                    return false;
-                }
-
-                $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);
-                $this->portfolio = $this->portfolioPackage->getPortfolioById($data['portfolio_id']);
-
-                return true;
-            }
-
-            unset($this->transactions[$date]);
 
             return true;
-        } catch (\throwable $e) {
-            trace([$e]);
         }
+
+        unset($this->transactions[$date]);
+
+        return true;
     }
 
     protected function getStategyArgs()
@@ -220,19 +209,24 @@ class CatPerDiff extends MfStrategies
         $this->transactionsCount = ['buy' => 0, 'sell' => 0];
         $this->totalTransactionsAmounts = ['buy' => 0, 'sell' => 0];
 
-        $dateIndexCounter = 0;
         foreach ($this->startEndDates as $dateIndex => $date) {
-            if ($dateIndexCounter === 7) {
-                if (!isset($this->transactions[$date->toDateString()])) {
-                    $this->transactions[$date->toDateString()] = [];
-                }
-
-                $dateIndexCounter = 1;
-
+            if ($date->isWeekend()) {
                 continue;
             }
 
-            $dateIndexCounter++;
+            $dateString = $date->toDateString();
+
+            if ($data['schedule'] === 'weekly') {
+                if (in_array($date->dayOfWeek(), $data['weekly_days'])) {
+                    $this->transactions[$dateString] = [];
+                }
+            } else if ($data['schedule'] === 'monthly') {
+                if (in_array($date->month, $data['monthly_months']) &&
+                    $date->day == $data['monthly_day']
+                ) {
+                    $this->transactions[$dateString] = [];
+                }
+            }
         }
 
         if (count($this->transactions) > 0) {
@@ -241,7 +235,8 @@ class CatPerDiff extends MfStrategies
                 0,
                 [
                     'total_transactions_count'      => $this->transactionsCount,
-                    'total_transactions_amount'     => 'Buy: ' . $currencySymbol .
+                    'total_transactions_amount'     =>
+                        'Buy: ' . $currencySymbol .
                         str_replace('EN_ ',
                             '',
                             (new \NumberFormatter('en_IN', \NumberFormatter::CURRENCY))
@@ -341,95 +336,5 @@ class CatPerDiff extends MfStrategies
         }
 
         return true;
-    }
-
-    protected function generateTransaction($data, $date)
-    {
-        if (!$this->categoriesPackage) {
-            $this->categoriesPackage = $this->usePackage(MfCategories::class);
-        }
-
-        if (!$this->portfolio) {
-            $this->portfolioPackage = $this->usePackage(MfPortfolios::class);
-            $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);
-            $this->portfolio = $this->portfolioPackage->getPortfolioById($data['portfolio_id']);
-        }
-
-        if (!$this->schemePackage) {
-            $this->schemePackage = $this->usePackage(MfSchemes::class);
-        }
-
-        if (!isset($this->schemes[$data['first_scheme']])) {
-            $scheme = $this->schemePackage->getMfTypeByAmfiCode((int) $data['first_scheme']);
-
-            if (!$scheme) {
-                $this->addResponse('Scheme with amfi code for first scheme not found', 1);
-
-                return false;
-            }
-
-            $this->schemes[$data['first_scheme']] = $this->schemePackage->getSchemeById((int) $scheme['id']);
-        }
-
-        if (!isset($this->schemes[$data['second_scheme']])) {
-            $scheme = $this->schemePackage->getMfTypeByAmfiCode((int) $data['second_scheme']);
-
-            if (!$scheme) {
-                $this->addResponse('Scheme with amfi code for first scheme not found', 1);
-
-                return false;
-            }
-
-            $this->schemes[$data['second_scheme']] = $this->schemePackage->getSchemeById((int) $scheme['id']);
-        }
-
-        $firstSchemeValue =
-            numberFormatPrecision(
-                $this->schemes[$data['first_scheme']]['navs']['navs'][$date]['nav'] * $this->portfolio['investments'][$data['first_scheme']]['units'], 2
-            );
-        $secondSchemeValue =
-            numberFormatPrecision(
-                $this->schemes[$data['second_scheme']]['navs']['navs'][$date]['nav'] * $this->portfolio['investments'][$data['second_scheme']]['units'], 2
-            );
-        $categoryDiff = $this->categoriesPackage->calculateCategoriesPercentDiff($firstSchemeValue, $secondSchemeValue);
-
-        $thresholdPercent = (float) $data['threshold_percent'];
-
-        if ($categoryDiff > $thresholdPercent) {
-            if ($firstSchemeValue > $secondSchemeValue) {
-                $sellScheme = $data['first_scheme'];
-                $buyScheme = $data['second_scheme'];
-                $diff = numberFormatPrecision(abs($secondSchemeValue - $firstSchemeValue) / 2, 2);
-            } else if ($secondSchemeValue > $firstSchemeValue) {
-                $sellScheme = $data['second_scheme'];
-                $buyScheme = $data['first_scheme'];
-                $diff = numberFormatPrecision(abs($firstSchemeValue - $secondSchemeValue) / 2, 2);
-            }
-
-            $this->transactions[$date]['categoryDiff'] = $categoryDiff;
-            $this->transactions[$date]['firstSchemeValue'] = $firstSchemeValue;
-            $this->transactions[$date]['secondSchemeValue'] = $secondSchemeValue;
-            $this->totalTransactionsCount = $this->totalTransactionsCount + 2;
-            $this->transactionsCount['buy']++;
-            $this->transactions[$date]['buy']['type'] = 'buy';
-            $this->transactions[$date]['buy']['amfi_code'] = $buyScheme;
-            $this->transactions[$date]['buy']['date'] = $date;
-            $this->transactions[$date]['buy']['amount'] = (float) $diff;
-            $this->totalTransactionsAmounts['buy'] += $diff;
-
-            $this->transactionsCount['sell']++;
-            $this->transactions[$date]['sell']['type'] = 'sell';
-            $this->transactions[$date]['sell']['amfi_code'] = $sellScheme;
-            $this->transactions[$date]['sell']['date'] = $date;
-            $this->transactions[$date]['sell']['amount'] = (float) $diff;
-            $this->totalTransactionsAmounts['sell'] += $diff;
-
-            // $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);
-            // $this->portfolio = $this->portfolioPackage->getPortfolioById($data['portfolio_id']);
-
-            return true;
-        }
-
-        unset($this->transactions[$date]);
     }
 }

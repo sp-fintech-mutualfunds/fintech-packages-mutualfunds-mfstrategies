@@ -117,9 +117,9 @@ class MfStrategies extends BasePackage
 
         $progressFile = $this->basepackages->progress->checkProgressFile('mfportfoliostrageties');
 
-        //Increase Exectimeout to 10 mins as this process takes time to extract and merge data.
-        if ((int) ini_get('max_execution_time') < 600) {
-            set_time_limit(600);
+        //Increase Exectimeout to 1 hr as this process takes time to extract and merge data.
+        if ((int) ini_get('max_execution_time') < 3600) {
+            set_time_limit(3600);
         }
 
         //Increase memory_limit to 1G as the process takes a bit of memory to process the array.
@@ -140,7 +140,7 @@ class MfStrategies extends BasePackage
 
                     $this->basepackages->progress->resetProgress();
 
-                    $this->recalculateStrategyPortfolio($process['args']);
+                    // $this->recalculateStrategyPortfolio($process['args']);
 
                     return false;
                 }
@@ -153,7 +153,7 @@ class MfStrategies extends BasePackage
 
                 $this->basepackages->progress->resetProgress();
 
-                $this->recalculateStrategyPortfolio($process['args']);
+                // $this->recalculateStrategyPortfolio($process['args']);
 
                 return false;
             }
@@ -312,10 +312,10 @@ class MfStrategies extends BasePackage
         //
     }
 
-    protected function getSchemeFromAmfiCodeOrSchemeId($data)
+    protected function getSchemeFromAmfiCodeOrSchemeId($data, $includeNavs = false)
     {
         $this->schemePackage = $this->usePackage(MfSchemes::class);
 
-        return $this->schemePackage->getSchemeFromAmfiCodeOrSchemeId($data, false);
+        return $this->schemePackage->getSchemeFromAmfiCodeOrSchemeId($data, $includeNavs);
     }
 }

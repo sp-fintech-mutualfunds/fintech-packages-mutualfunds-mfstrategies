@@ -38,6 +38,18 @@ class Sip extends MfStrategies
 
     protected $startEndDates;
 
+    protected $previousPercentValue = 0;
+
+    protected $scheme;
+
+    protected $schemeNavs = [];
+
+    protected $trajectoryMaxInvestAmount = 0;
+
+    protected $trajectoryInvestAmount = 0;
+
+    protected $monitoringDays = 0;
+
     public function init()
     {
         $this->strategyArgs = $this->getStategyArgs();
@@ -53,26 +65,54 @@ class Sip extends MfStrategies
             $this->transactionPackage = $this->usePackage(MfTransactions::class);
         }
 
+        $this->checkData($data);
+
         if (isset($this->transactions[$date])) {
-            $this->transactions[$date]['portfolio_id'] = (int) $data['portfolio_id'];
-            $this->transactions[$date]['amc_id'] = (int) $data['amc_id'];
-            if (isset($data['scheme_id'])) {
-                $this->transactions[$date]['scheme_id'] = (int) $data['scheme_id'];
-            } else if (isset($data['amfi_code'])) {
-                $this->transactions[$date]['amfi_code'] = (int) $data['amfi_code'];
+            if ($this->transactions[$date]['sip'] === true) {
+                return $this->generateTransaction($data, $date);
             }
-            $this->transactions[$date]['amc_transaction_id'] = '';
-            $this->transactions[$date]['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
-            $this->transactions[$date]['via_strategies'] = true;
 
-            if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
-                $this->addResponse(
-                    $this->transactionPackage->packagesData->responseMessage,
-                    $this->transactionPackage->packagesData->responseCode,
-                    $this->transactionPackage->packagesData->responseData ?? []
-                );
+            //Trajectory
+            if ($this->trajectoryMaxInvestAmount === 0) {
+                $this->trajectoryMaxInvestAmount = (float) $data['trajectory_max_invest_amount'];
+            }
 
-                return false;
+            if ($this->trajectoryInvestAmount >= $this->trajectoryMaxInvestAmount) {//Max Transactions reached.
+                return true;
+            }
+
+            if (isset($this->schemeNavs[$date]['trajectory']) &&
+                $this->schemeNavs[$date]['trajectory'] === $data['trajectory']
+            ) {
+                if ($data['trajectory_percent'] !== 0) {
+                    if (isset($this->schemeNavs[$date]['diff_percent'])) {
+                        if (abs($this->schemeNavs[$date]['diff_percent']) < $data['trajectory_percent']) {
+                            return true;
+                        }
+                    }
+                }
+
+                if ((int) $data['consecutive_days'] > 0) {
+                    if ($this->monitoringDays === (int) $data['consecutive_days']) {//Create Transaction
+                        $data['amount'] = (float) $data['trajectory_invest_amount'];
+
+                        $this->trajectoryInvestAmount = (float) $this->trajectoryInvestAmount + $data['amount'];
+
+                        return $this->generateTransaction($data, $date);
+                    } else if ($this->monitoringDays < (int) $data['consecutive_days']) {
+                        $this->monitoringDays++;
+
+                        return true;
+                    }
+                } else if ((int) $data['consecutive_days'] === 0) {//Create Transaction
+                    $data['amount'] = (float) $data['trajectory_invest_amount'];
+
+                    $this->trajectoryInvestAmount = (float) $this->trajectoryInvestAmount + $data['amount'];
+
+                    return $this->generateTransaction($data, $date);
+                }
+            } else {
+                $this->monitoringDays = 0;//Reset monitoring consecutive_days.
             }
 
             return true;
@@ -81,6 +121,48 @@ class Sip extends MfStrategies
         $this->addResponse('Transaction with ' . $date . ' not found!', 1);
 
         return false;
+    }
+
+    protected function generateTransaction($data, $date)
+    {
+        $this->transactions[$date]['portfolio_id'] = (int) $data['portfolio_id'];
+        $this->transactions[$date]['amc_id'] = (int) $data['amc_id'];
+        if (isset($data['scheme_id'])) {
+            $this->transactions[$date]['scheme_id'] = (int) $data['scheme_id'];
+        } else if (isset($data['amfi_code'])) {
+            $this->transactions[$date]['amfi_code'] = (int) $data['amfi_code'];
+        }
+        $this->transactions[$date]['amc_transaction_id'] = '';
+        $this->transactions[$date]['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
+        $this->transactions[$date]['type'] = 'buy';
+        $this->transactions[$date]['via_strategies'] = true;
+        $this->transactions[$date]['date'] = $date;
+        if ($this->transactions[$date]['sip'] === true &&
+            $this->trajectoryInvestAmount > 0
+        ) {
+            $this->transactions[$date]['amount'] = (float) $data['amount'] - $this->trajectoryInvestAmount;
+        } else {
+            $this->transactions[$date]['amount'] = (float) $data['amount'];
+        }
+
+        if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
+            $this->addResponse(
+                $this->transactionPackage->packagesData->responseMessage,
+                $this->transactionPackage->packagesData->responseCode,
+                $this->transactionPackage->packagesData->responseData ?? []
+            );
+
+            return false;
+        }
+
+        $this->monitoringDays = 0;
+
+        if ($this->transactions[$date]['sip'] === true) {
+            $this->trajectoryMaxInvestAmount = 0;
+            $this->trajectoryInvestAmount = 0;
+        }
+
+        return true;
     }
 
     protected function getStategyArgs()
@@ -104,6 +186,18 @@ class Sip extends MfStrategies
             }
         }
 
+        if (isset($data['trajectory']) && $data['trajectory'] !== 'no') {
+            if (!isset($this->scheme)) {
+                $this->scheme = $this->getSchemeFromAmfiCodeOrSchemeId($data, true);
+            }
+
+            if (!isset($this->scheme['navs']['navs'])) {
+                $this->addResponse('Navs of the selected scheme not present, Please import navs.', 1);
+
+                return false;
+            }
+        }
+
         $this->transactionsCount = ['buy' => 0, 'sell' => 0];
         $this->totalTransactionsAmounts = ['buy' => 0, 'sell' => 0];
 
@@ -114,6 +208,7 @@ class Sip extends MfStrategies
         if (isset($data['scheme_id'])) {
             $this->totalTransactionsCount++;
             $this->transactionsCount['buy']++;
+            $this->transactions[$data['investmentDate']]['sip'] = true;
             $this->transactions[$data['investmentDate']]['type'] = 'buy';
             $this->transactions[$data['investmentDate']]['scheme'] = $data['scheme']['name'];
             $this->transactions[$data['investmentDate']]['date'] = $data['investmentDate'];
@@ -124,21 +219,58 @@ class Sip extends MfStrategies
         foreach ($this->startEndDates as $index => $date) {
             $dateString = $date->toDateString();
 
+            if ($dateString === $data['investmentDate']) {//No need to overwrite first order.
+                continue;
+            }
+
+            if (isset($data['trajectory']) && $data['trajectory'] !== 'no') {
+                if (!isset($this->scheme['navs']['navs'][$dateString])) {
+                    $this->addResponse('Nav for date:' . $dateString . ' of the selected scheme not present, Please import navs.', 1);
+
+                    return false;
+                }
+
+                $trajectoryDate = \Carbon\Carbon::parse($dateString);
+                //If transaction is happening on Sunday, move it to Monday.
+                if ($trajectoryDate->englishDayOfWeek === 'Sunday') {
+                    $trajectoryDate = $trajectoryDate->addDay();
+                    $trajectoryDateString = $trajectoryDate->toDateString();
+                } else if ($trajectoryDate->englishDayOfWeek === 'Saturday') {
+                    $trajectoryDate = $trajectoryDate->addDay(2);
+                    $trajectoryDateString = $trajectoryDate->toDateString();
+                } else {
+                    $trajectoryDateString = $dateString;
+                }
+
+                if (!isset($this->transactions[$trajectoryDateString])) {
+                    $this->transactions[$trajectoryDateString] = [];
+                    $this->transactions[$trajectoryDateString]['date'] = $trajectoryDateString;
+                    $this->transactions[$trajectoryDateString]['scheme'] = $data['scheme']['name'];
+                    $this->transactions[$trajectoryDateString]['sip'] = false;
+                    $this->schemeNavs[$trajectoryDateString] = $this->scheme['navs']['navs'][$trajectoryDateString];
+                }
+            }
+
+            // if ($date->isWeekend()) {
+            //     continue;
+            // }
+
             if ($data['schedule'] === 'weekly') {
                 if (in_array($date->dayOfWeek(), $data['weekly_days'])) {
-                    if (!isset($this->transactions[$dateString])) {
-                        $this->transactions[$dateString] = [];
-                    } else {
-                        //If you are buying on the day which is also the start day of buy, this will overwrite the buy order,
-                        //to avoid that the workaround is to buy via transact mode and then create strategy of buy
-                        //or the date of buy will be calculated from the next date.
-                        if ($this->transactions[$dateString]['type'] === 'buy') {
-                            continue;
-                        }
-                    }
+                    // if (!isset($this->transactions[$dateString])) {
+                    //     $this->transactions[$dateString] = [];
+                    // } else {
+                    //     //If you are buying on the day which is also the start day of buy, this will overwrite the buy order,
+                    //     //to avoid that the workaround is to buy via transact mode and then create strategy of buy
+                    //     //or the date of buy will be calculated from the next date.
+                    //     if ($this->transactions[$dateString]['type'] === 'buy') {
+                    //         continue;
+                    //     }
+                    // }
 
                     $this->totalTransactionsCount++;
                     $this->transactionsCount['buy']++;
+                    $this->transactions[$dateString]['sip'] = true;
                     $this->transactions[$dateString]['type'] = 'buy';
                     $this->transactions[$dateString]['scheme'] = $data['scheme']['name'];
                     $this->transactions[$dateString]['date'] = $dateString;
@@ -164,9 +296,22 @@ class Sip extends MfStrategies
             } else if ($data['schedule'] === 'monthly') {
                 if (in_array($date->month, $data['monthly_months'])) {
                     if ($date->day == $data['monthly_day']) {
+                        // if (!isset($this->transactions[$dateString])) {
+                        //     $this->transactions[$dateString] = [];
+                        // } else {
+                        //     //If you are buying on the day which is also the start day of buy, this will overwrite the buy order,
+                        //     //to avoid that the workaround is to buy via transact mode and then create strategy of buy
+                        //     //or the date of buy will be calculated from the next date.
+                        //     if ($this->transactions[$dateString]['type'] === 'buy') {
+                        //         continue;
+                        //     }
+                        // }
                         //If transaction is happening on Sunday, move it to Monday.
                         if ($date->englishDayOfWeek === 'Sunday') {
                             $date = $date->addDay();
+                            $dateString = $date->toDateString();
+                        } else if ($date->englishDayOfWeek === 'Saturday') {
+                            $date = $date->addDay(2);
                             $dateString = $date->toDateString();
                         }
 
@@ -176,6 +321,7 @@ class Sip extends MfStrategies
 
                         $this->totalTransactionsCount++;
                         $this->transactionsCount['buy']++;
+                        $this->transactions[$dateString]['sip'] = true;
                         $this->transactions[$dateString]['type'] = 'buy';
                         $this->transactions[$dateString]['scheme'] = $data['scheme']['name'];
                         $this->transactions[$dateString]['date'] = $dateString;
@@ -237,15 +383,31 @@ class Sip extends MfStrategies
             $this->incrementAmount = (float) $data['amount'];
         }
 
+        if ($this->previousPercentValue === 0) {
+            $this->previousPercentValue = (float) $data['amount'];
+        }
+
         if ($this->incrementSchedule === 'increment-next') {
-            $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+            if ($data['increment_type'] === 'percent') {
+                $this->previousPercentValue =
+                    $this->incrementAmount =
+                        round(((100 + $data['increment_value']) / 100) * $this->previousPercentValue);
+            } else if ($data['increment_type'] === 'amount') {
+                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_value']);
+            }
 
             $this->nextTransactionIndex++;
 
             return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-weekly') {
             if ($this->incrementWeek !== $date->weekOfYear) {
-                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+                if ($data['increment_type'] === 'percent') {
+                    $this->previousPercentValue =
+                        $this->incrementAmount =
+                            round(((100 + $data['increment_value']) / 100) * $this->previousPercentValue);
+                } else if ($data['increment_type'] === 'amount') {
+                    $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_value']);
+                }
 
                 $this->incrementWeek = $date->weekOfYear;
 
@@ -255,7 +417,13 @@ class Sip extends MfStrategies
             return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-monthly') {
             if ($this->incrementMonth !== $date->month) {
-                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+                if ($data['increment_type'] === 'percent') {
+                    $this->previousPercentValue =
+                        $this->incrementAmount =
+                            round(((100 + $data['increment_value']) / 100) * $this->previousPercentValue);
+                } else if ($data['increment_type'] === 'amount') {
+                    $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_value']);
+                }
 
                 $this->incrementMonth = $date->month;
 
@@ -265,7 +433,13 @@ class Sip extends MfStrategies
             return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-yearly') {
             if ($this->incrementYear !== $date->year) {
-                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+                if ($data['increment_type'] === 'percent') {
+                    $this->previousPercentValue =
+                        $this->incrementAmount =
+                            round(((100 + $data['increment_value']) / 100) * $this->previousPercentValue);
+                } else if ($data['increment_type'] === 'amount') {
+                    $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_value']);
+                }
 
                 $this->incrementYear = $date->year;
 
@@ -277,7 +451,6 @@ class Sip extends MfStrategies
 
         return (float) $data['amount'];
     }
-
 
     protected function checkData(&$data)
     {
@@ -323,6 +496,42 @@ class Sip extends MfStrategies
             return false;
         }
 
+        $data['amount'] = (float) $data['amount'];
+
+        if (isset($data['trajectory']) && $data['trajectory'] !== 'no') {
+            $data['consecutive_days'] = (int) $data['consecutive_days'];
+
+            if ($data['consecutive_days'] > 4) {
+                $data['consecutive_days'] = 4;
+            }
+            $data['trajectory_percent'] = (float) abs($data['trajectory_percent']);
+            // if ($data['trajectory'] === 'down') {
+            //     $data['trajectory_percent'] = -$data['trajectory_percent'];
+            // }
+
+            $data['trajectory_max_invest_amount'] = (float) $data['trajectory_max_invest_amount'];
+
+            if ($data['trajectory_max_invest_amount'] === 0) {
+                $this->addResponse('Please provide Trajectory max investment amount', 1);
+
+                return false;
+            }
+
+            if ($data['trajectory_max_invest_amount'] >= $data['amount']) {
+                $this->addResponse('Trajectory Max amount should be lower then SIP investment amount', 1);
+
+                return false;
+            }
+
+            $data['trajectory_invest_amount'] = (float) $data['trajectory_invest_amount'];
+
+            if ($data['trajectory_invest_amount'] === 0) {
+                $this->addResponse('Please provide Trajectory investment amount', 1);
+
+                return false;
+            }
+        }
+
         if (!isset($data['schedule'])) {
             $this->addResponse('Please provide schedule', 1);
 
@@ -344,12 +553,17 @@ class Sip extends MfStrategies
         }
 
         if (isset($data['increment_schedule']) &&
-            $data['increment_schedule'] !== 'increment-none' &&
-            !isset($data['increment_amount'])
+            $data['increment_schedule'] !== 'increment-none'
         ) {
-            $this->addResponse('Please provide increment schedule amount', 1);
+            if (!isset($data['increment_type'])) {
+                $data['increment_type'] = 'amount';
+            }
 
-            return false;
+            if (!isset($data['increment_value'])) {
+                $this->addResponse('Please provide increment schedule value', 1);
+
+                return false;
+            }
         }
 
         return true;

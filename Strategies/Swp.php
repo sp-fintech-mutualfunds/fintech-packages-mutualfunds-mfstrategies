@@ -38,6 +38,8 @@ class Swp extends MfStrategies
 
     protected $startEndDates;
 
+    protected $previousPercentValue = 0;
+
     public function init()
     {
         $this->strategyArgs = $this->getStategyArgs();
@@ -65,15 +67,29 @@ class Swp extends MfStrategies
             $this->transactions[$date]['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
             $this->transactions[$date]['via_strategies'] = true;
 
-            if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
-                $this->addResponse(
-                    $this->transactionPackage->packagesData->responseMessage,
-                    $this->transactionPackage->packagesData->responseCode,
-                    $this->transactionPackage->packagesData->responseData ?? []
-                );
+                if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
+                    if (str_contains($this->transactionPackage->packagesData->responseMessage, 'exceeds')) {
+                        $this->transactions[$date]['sell_all'] = 'true';
 
-                return false;
-            }
+                        if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
+                            $this->addResponse(
+                                $this->transactionPackage->packagesData->responseMessage,
+                                $this->transactionPackage->packagesData->responseCode,
+                                $this->transactionPackage->packagesData->responseData ?? []
+                            );
+
+                            return false;
+                        }
+                    }
+
+                    $this->addResponse(
+                        $this->transactionPackage->packagesData->responseMessage,
+                        $this->transactionPackage->packagesData->responseCode,
+                        $this->transactionPackage->packagesData->responseData ?? []
+                    );
+
+                    return false;
+                }
 
             return true;
         }
@@ -237,15 +253,31 @@ class Swp extends MfStrategies
             $this->incrementAmount = (float) $data['amount'];
         }
 
+        if ($this->previousPercentValue === 0) {
+            $this->previousPercentValue = (float) $data['amount'];
+        }
+
         if ($this->incrementSchedule === 'increment-next') {
-            $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+            if ($data['increment_type'] === 'percent') {
+                $this->previousPercentValue =
+                    $this->incrementAmount =
+                        round(((100 + $data['increment_value']) / 100) * $this->previousPercentValue);
+            } else if ($data['increment_type'] === 'amount') {
+                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_value']);
+            }
 
             $this->nextTransactionIndex++;
 
             return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-weekly') {
             if ($this->incrementWeek !== $date->weekOfYear) {
-                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+                if ($data['increment_type'] === 'percent') {
+                    $this->previousPercentValue =
+                        $this->incrementAmount =
+                            round(((100 + $data['increment_value']) / 100) * $this->previousPercentValue);
+                } else if ($data['increment_type'] === 'amount') {
+                    $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_value']);
+                }
 
                 $this->incrementWeek = $date->weekOfYear;
 
@@ -255,7 +287,13 @@ class Swp extends MfStrategies
             return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-monthly') {
             if ($this->incrementMonth !== $date->month) {
-                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+                if ($data['increment_type'] === 'percent') {
+                    $this->previousPercentValue =
+                        $this->incrementAmount =
+                            round(((100 + $data['increment_value']) / 100) * $this->previousPercentValue);
+                } else if ($data['increment_type'] === 'amount') {
+                    $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_value']);
+                }
 
                 $this->incrementMonth = $date->month;
 
@@ -265,7 +303,13 @@ class Swp extends MfStrategies
             return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-yearly') {
             if ($this->incrementYear !== $date->year) {
-                $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_amount']);
+                if ($data['increment_type'] === 'percent') {
+                    $this->previousPercentValue =
+                        $this->incrementAmount =
+                            round(((100 + $data['increment_value']) / 100) * $this->previousPercentValue);
+                } else if ($data['increment_type'] === 'amount') {
+                    $this->incrementAmount = $data['amount'] + ($this->nextTransactionIndex * $data['increment_value']);
+                }
 
                 $this->incrementYear = $date->year;
 
@@ -337,12 +381,17 @@ class Swp extends MfStrategies
         }
 
         if (isset($data['increment_schedule']) &&
-            $data['increment_schedule'] !== 'increment-none' &&
-            !isset($data['increment_amount'])
+            $data['increment_schedule'] !== 'increment-none'
         ) {
-            $this->addResponse('Please provide increment schedule amount', 1);
+            if (!isset($data['increment_type'])) {
+                $data['increment_type'] = 'amount';
+            }
 
-            return false;
+            if (!isset($data['increment_value'])) {
+                $this->addResponse('Please provide increment schedule value', 1);
+
+                return false;
+            }
         }
 
         return true;

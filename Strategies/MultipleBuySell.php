@@ -73,6 +73,20 @@ class MultipleBuySell extends MfStrategies
                             $transaction['via_strategies'] = true;
 
                             if (!$this->transactionPackage->addMfTransaction($transaction)) {
+                                if (str_contains($this->transactionPackage->packagesData->responseMessage, 'exceeds')) {
+                                    $transactions['sell_all'] = 'true';
+
+                                    if (!$this->transactionPackage->addMfTransaction($transactions)) {
+                                        $this->addResponse(
+                                            $this->transactionPackage->packagesData->responseMessage,
+                                            $this->transactionPackage->packagesData->responseCode,
+                                            $this->transactionPackage->packagesData->responseData ?? []
+                                        );
+
+                                        return false;
+                                    }
+                                }
+
                                 $this->addResponse(
                                     $this->transactionPackage->packagesData->responseMessage,
                                     $this->transactionPackage->packagesData->responseCode,
