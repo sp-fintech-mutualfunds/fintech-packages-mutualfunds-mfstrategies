@@ -65,7 +65,7 @@ class CatPerDiff extends MfStrategies
         }
 
         if (!isset($this->schemes[$data['first_scheme']])) {
-            $scheme = $this->schemePackage->getMfTypeByAmfiCode((int) $data['first_scheme']);
+            $scheme = $this->schemePackage->getById((int) $data['first_scheme']);
 
             if (!$scheme) {
                 $this->addResponse('Scheme with amfi code for first scheme not found', 1);
@@ -77,7 +77,7 @@ class CatPerDiff extends MfStrategies
         }
 
         if (!isset($this->schemes[$data['second_scheme']])) {
-            $scheme = $this->schemePackage->getMfTypeByAmfiCode((int) $data['second_scheme']);
+            $scheme = $this->schemePackage->getById((int) $data['second_scheme']);
 
             if (!$scheme) {
                 $this->addResponse('Scheme with amfi code for first scheme not found', 1);
