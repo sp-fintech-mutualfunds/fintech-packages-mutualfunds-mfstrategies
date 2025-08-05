@@ -68,7 +68,7 @@ class CatPerDiff extends MfStrategies
             $scheme = $this->schemePackage->getById((int) $data['first_scheme']);
 
             if (!$scheme) {
-                $this->addResponse('Scheme with amfi code for first scheme not found', 1);
+                $this->addResponse('Scheme with scheme id for first scheme not found', 1);
 
                 return false;
             }
@@ -80,7 +80,7 @@ class CatPerDiff extends MfStrategies
             $scheme = $this->schemePackage->getById((int) $data['second_scheme']);
 
             if (!$scheme) {
-                $this->addResponse('Scheme with amfi code for first scheme not found', 1);
+                $this->addResponse('Scheme with scheme id for first scheme not found', 1);
 
                 return false;
             }
@@ -119,8 +119,7 @@ class CatPerDiff extends MfStrategies
 
             $sellTransaction = [];
             $sellTransaction['type'] = 'sell';
-            $sellTransaction['amfi_code'] = $this->schemes[$sellScheme]['amfi_code'];
-            $sellTransaction['scheme'] = $this->schemes[$sellScheme]['id'];
+            $sellTransaction['scheme_id'] = $this->schemes[$sellScheme]['id'];
             $sellTransaction['date'] = $date;
             $sellTransaction['amount'] = (float) $diff;
             $sellTransaction['portfolio_id'] = $data['portfolio_id'];
@@ -149,8 +148,7 @@ class CatPerDiff extends MfStrategies
 
             $buyTransaction = [];
             $buyTransaction['type'] = 'buy';
-            $buyTransaction['amfi_code'] = $this->schemes[$buyScheme]['amfi_code'];
-            $buyTransaction['scheme'] = $this->schemes[$buyScheme]['id'];
+            $buyTransaction['scheme_id'] = $this->schemes[$buyScheme]['id'];
             $buyTransaction['date'] = $date;
             $buyTransaction['amount'] = (float) $diff;
             $buyTransaction['portfolio_id'] = $data['portfolio_id'];

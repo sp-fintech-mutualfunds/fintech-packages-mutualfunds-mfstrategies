@@ -3,6 +3,7 @@
 namespace Apps\Fintech\Packages\Mf\Strategies;
 
 use Apps\Fintech\Packages\Mf\Portfolios\MfPortfolios;
+use Apps\Fintech\Packages\Mf\Portfoliostimeline\MfPortfoliostimeline;
 use Apps\Fintech\Packages\Mf\Schemes\MfSchemes;
 use Apps\Fintech\Packages\Mf\Strategies\Model\AppsFintechMfStrategies;
 use System\Base\BasePackage;
@@ -24,6 +25,8 @@ class MfStrategies extends BasePackage
     protected $progressMethods = [];
 
     protected $newPortfolioId;
+
+    protected $transactionDates = [];
 
     public function getMfStrategiesByName($name)
     {
@@ -118,8 +121,8 @@ class MfStrategies extends BasePackage
         $progressFile = $this->basepackages->progress->checkProgressFile('mfportfoliostrageties');
 
         //Increase Exectimeout to 1 hr as this process takes time to extract and merge data.
-        if ((int) ini_get('max_execution_time') < 3600) {
-            set_time_limit(3600);
+        if ((int) ini_get('max_execution_time') < 18000) {
+            set_time_limit(18000);
         }
 
         //Increase memory_limit to 1G as the process takes a bit of memory to process the array.
@@ -140,8 +143,6 @@ class MfStrategies extends BasePackage
 
                     $this->basepackages->progress->resetProgress();
 
-                    // $this->recalculateStrategyPortfolio($process['args']);
-
                     return false;
                 }
 
@@ -152,8 +153,6 @@ class MfStrategies extends BasePackage
                 );
 
                 $this->basepackages->progress->resetProgress();
-
-                // $this->recalculateStrategyPortfolio($process['args']);
 
                 return false;
             }
@@ -184,10 +183,10 @@ class MfStrategies extends BasePackage
             );
         }
 
-        $transactionDates = array_keys($this->strategyClass->transactions);
+        $this->transactionDates = array_keys($this->strategyClass->transactions);
 
-        if (count($transactionDates) > 0) {
-            foreach ($transactionDates as $date) {
+        if (count($this->transactionDates) > 0) {
+            foreach ($this->transactionDates as $date) {
                 array_push($this->progressMethods,
                     [
                         'method'    => 'processStrategy',
@@ -269,6 +268,10 @@ class MfStrategies extends BasePackage
 
             return false;
         }
+
+        $portfoliosTimelinePackage = $this->usepackage(MfPortfoliostimeline::class);
+
+        $portfoliosTimelinePackage->forceRecalculateTimeline(['id' => $data['portfolio_id']], $this->helper->first($this->transactionDates));
 
         return true;
     }

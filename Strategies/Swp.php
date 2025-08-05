@@ -58,11 +58,7 @@ class Swp extends MfStrategies
         if (isset($this->transactions[$date])) {
             $this->transactions[$date]['portfolio_id'] = (int) $data['portfolio_id'];
             $this->transactions[$date]['amc_id'] = (int) $data['amc_id'];
-            if (isset($data['scheme_id'])) {
-                $this->transactions[$date]['scheme_id'] = (int) $data['scheme_id'];
-            } else if (isset($data['amfi_code'])) {
-                $this->transactions[$date]['amfi_code'] = (int) $data['amfi_code'];
-            }
+            $this->transactions[$date]['scheme_id'] = (int) $data['scheme_id'];
             $this->transactions[$date]['amc_transaction_id'] = '';
             $this->transactions[$date]['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
             $this->transactions[$date]['via_strategies'] = true;
@@ -127,7 +123,7 @@ class Swp extends MfStrategies
             $this->incrementSchedule = $data['increment_schedule'];
         }
 
-        if (isset($data['scheme_id'])) {
+        if (isset($data['investmentSource']) && $data['investmentSource'] === 'new') {
             $this->totalTransactionsCount++;
             $this->transactionsCount['buy']++;
             $this->transactions[$data['investmentDate']]['type'] = 'buy';
@@ -270,7 +266,9 @@ class Swp extends MfStrategies
 
             return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-weekly') {
-            if ($this->incrementWeek !== $date->weekOfYear) {
+            if ($this->incrementWeek &&
+                $this->incrementWeek !== $date->weekOfYear
+            ) {
                 if ($data['increment_type'] === 'percent') {
                     $this->previousPercentValue =
                         $this->incrementAmount =
@@ -286,7 +284,9 @@ class Swp extends MfStrategies
 
             return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-monthly') {
-            if ($this->incrementMonth !== $date->month) {
+            if ($this->incrementMonth &&
+                $this->incrementMonth !== $date->month
+            ) {
                 if ($data['increment_type'] === 'percent') {
                     $this->previousPercentValue =
                         $this->incrementAmount =
@@ -302,7 +302,9 @@ class Swp extends MfStrategies
 
             return (float) $this->incrementAmount;
         } else if ($this->incrementSchedule === 'increment-yearly') {
-            if ($this->incrementYear !== $date->year) {
+            if ($this->incrementYear &&
+                $this->incrementYear !== $date->year
+            ) {
                 if ($data['increment_type'] === 'percent') {
                     $this->previousPercentValue =
                         $this->incrementAmount =
@@ -332,13 +334,13 @@ class Swp extends MfStrategies
             return false;
         }
 
-        if (!isset($data['amfi_code']) && !isset($data['scheme_id'])) {
+        if (!isset($data['scheme_id'])) {
             $this->addResponse('Investment scheme not provided', 1);
 
             return false;
         }
 
-        if (isset($data['scheme_id'])) {
+        if (isset($data['investmentSource']) && $data['investmentSource'] === 'new') {
             if (!isset($data['investmentDate']) || !isset($data['investmentAmount'])) {
                 $this->addResponse('Investment date/amount not provided', 1);
 

@@ -141,7 +141,7 @@ class MultipleBuySell extends MfStrategies
                 }
                 $transaction = [];
                 $transaction['type'] = 'buy';
-                $transaction['amfi_code'] = $order['amfi_code'];
+                $transaction['scheme_id'] = $order['scheme_id'];
                 $transaction['scheme'] = $order['scheme'];
                 $transaction['date'] = $order['date'];
                 $transaction['amount'] = (float) $order['amount'];
@@ -156,7 +156,7 @@ class MultipleBuySell extends MfStrategies
                 }
                 $transaction = [];
                 $transaction['type'] = 'sell';
-                $transaction['amfi_code'] = $order['amfi_code'];
+                $transaction['scheme_id'] = $order['scheme_id'];
                 $transaction['scheme'] = $order['scheme'];
                 $transaction['date'] = $order['date'];
                 $transaction['amount'] = (float) $order['amount'];
@@ -218,13 +218,13 @@ class MultipleBuySell extends MfStrategies
             unset($data['data'][$index]['action']);
 
             if (!isset($row['type']) &&
-                !isset($row['amfi_code']) &&
+                !isset($row['scheme_id']) &&
                 !isset($row['date']) &&
                 !isset($row['amount'])
             ) {
                 $checkPass = false;
 
-                $this->addResponse('Incomplete order data provided, please provide amfi_code, date, type and amount.', 1);
+                $this->addResponse('Incomplete order data provided, please provide scheme_id, date, type and amount.', 1);
 
                 return;
             }
@@ -243,7 +243,7 @@ class MultipleBuySell extends MfStrategies
                     return;
                 }
 
-                if (!isset($portfolio['investments'][$row['amfi_code']])) {
+                if (!isset($portfolio['investments'][$row['scheme_id']])) {
                     $checkPass = false;
 
                     $this->addResponse('You have sell order in queue, but there are no investments in the portfolio. Please buy scheme first.', 1);
@@ -251,11 +251,11 @@ class MultipleBuySell extends MfStrategies
                     return;
                 }
 
-                if (!isset($sellAmounts[$row['amfi_code']])) {
-                    $sellAmounts[$row['amfi_code']] = 0;
+                if (!isset($sellAmounts[$row['scheme_id']])) {
+                    $sellAmounts[$row['scheme_id']] = 0;
                 }
 
-                $sellAmounts[$row['amfi_code']] = $sellAmounts[$row['amfi_code']] + (float) $row['amount'];
+                $sellAmounts[$row['scheme_id']] = $sellAmounts[$row['scheme_id']] + (float) $row['amount'];
             }
         });
 
