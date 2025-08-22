@@ -48,6 +48,7 @@ class MultipleBuySell extends MfStrategies
                             $transaction['portfolio_id'] = $data['portfolio_id'];
                             $transaction['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
                             $transaction['via_strategies'] = true;
+                            $transaction['strategy_id'] = (int) $data['strategy_id'];
 
                             if (!$this->transactionPackage->addMfTransaction($transaction)) {
                                 $this->addResponse(
@@ -71,6 +72,7 @@ class MultipleBuySell extends MfStrategies
                             $transaction['portfolio_id'] = $data['portfolio_id'];
                             $transaction['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
                             $transaction['via_strategies'] = true;
+                            $transaction['strategy_id'] = (int) $data['strategy_id'];
 
                             if (!$this->transactionPackage->addMfTransaction($transaction)) {
                                 if (str_contains($this->transactionPackage->packagesData->responseMessage, 'exceeds')) {

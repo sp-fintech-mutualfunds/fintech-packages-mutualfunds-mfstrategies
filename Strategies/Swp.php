@@ -62,30 +62,31 @@ class Swp extends MfStrategies
             $this->transactions[$date]['amc_transaction_id'] = '';
             $this->transactions[$date]['details'] = 'Added via Strategy:' . $this->strategyDisplayName;
             $this->transactions[$date]['via_strategies'] = true;
+            $this->transactions[$date]['strategy_id'] = (int) $data['strategy_id'];
 
-                if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
-                    if (str_contains($this->transactionPackage->packagesData->responseMessage, 'exceeds')) {
-                        $this->transactions[$date]['sell_all'] = 'true';
+            if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
+                if (str_contains($this->transactionPackage->packagesData->responseMessage, 'exceeds')) {
+                    $this->transactions[$date]['sell_all'] = 'true';
 
-                        if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
-                            $this->addResponse(
-                                $this->transactionPackage->packagesData->responseMessage,
-                                $this->transactionPackage->packagesData->responseCode,
-                                $this->transactionPackage->packagesData->responseData ?? []
-                            );
+                    if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
+                        $this->addResponse(
+                            $this->transactionPackage->packagesData->responseMessage,
+                            $this->transactionPackage->packagesData->responseCode,
+                            $this->transactionPackage->packagesData->responseData ?? []
+                        );
 
-                            return false;
-                        }
+                        return false;
                     }
-
-                    $this->addResponse(
-                        $this->transactionPackage->packagesData->responseMessage,
-                        $this->transactionPackage->packagesData->responseCode,
-                        $this->transactionPackage->packagesData->responseData ?? []
-                    );
-
-                    return false;
                 }
+
+                $this->addResponse(
+                    $this->transactionPackage->packagesData->responseMessage,
+                    $this->transactionPackage->packagesData->responseCode,
+                    $this->transactionPackage->packagesData->responseData ?? []
+                );
+
+                return false;
+            }
 
             return true;
         }

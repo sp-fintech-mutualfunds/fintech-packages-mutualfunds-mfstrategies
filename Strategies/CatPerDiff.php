@@ -130,7 +130,7 @@ class CatPerDiff extends MfStrategies
             $this->transactions[$date]['sell']['nav'] = $this->schemes[$sellScheme]['navs']['navs'][$date]['nav'];
             $this->transactions[$date]['sell']['units'] = $this->portfolio['investments'][$sellScheme]['units'];
             $this->transactions[$date]['sell']['transaction_amount'] = (float) $diff;
-
+            $this->transactions[$date]['sell']['strategy_id'] = (int) $data['strategy_id'];
 
             if (!$this->transactionPackage->addMfTransaction($sellTransaction)) {
                 $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);
@@ -159,6 +159,7 @@ class CatPerDiff extends MfStrategies
             $this->transactions[$date]['buy']['nav'] = $this->schemes[$buyScheme]['navs']['navs'][$date]['nav'];
             $this->transactions[$date]['buy']['units'] = $this->portfolio['investments'][$buyScheme]['units'];
             $this->transactions[$date]['buy']['transaction_amount'] = (float) $diff;
+            $this->transactions[$date]['buy']['strategy_id'] = (int) $data['strategy_id'];
 
             if (!$this->transactionPackage->addMfTransaction($buyTransaction)) {
                 $this->portfolioPackage->recalculatePortfolio(['portfolio_id' => $data['portfolio_id']], true);

@@ -131,6 +131,7 @@ class Trajectory extends MfStrategies
         $this->transactions[$date]['via_strategies'] = true;
         $this->transactions[$date]['date'] = $date;
         $this->transactions[$date]['amount'] = (float) $data['amount'] + $this->carryForwardAmount;
+        $this->transactions[$date]['strategy_id'] = (int) $data['strategy_id'];
 
         if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
             $this->addResponse(

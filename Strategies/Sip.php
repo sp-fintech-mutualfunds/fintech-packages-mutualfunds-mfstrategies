@@ -66,44 +66,7 @@ class Sip extends MfStrategies
         $this->checkData($data);
 
         if (isset($this->transactions[$date])) {
-                return $this->generateTransaction($data, $date);
-            // if ($this->transactions[$date]['sip'] === true) {
-            // }
-
-            //Trajectory
-            // if ($this->trajectoryMaxInvestAmount === 0) {
-            //     $this->trajectoryMaxInvestAmount = (float) $data['trajectory_max_invest_amount'];
-            // }
-
-            // if ($this->trajectoryInvestAmount >= $this->trajectoryMaxInvestAmount) {//Max Transactions reached.
-            //     return true;
-            // }
-
-            // if ((int) $data['consecutive_days'] > 0) {
-            //     if ($this->monitoringDays === (int) $data['consecutive_days']) {//Create Transaction
-            //         $data['amount'] = (float) $data['trajectory_invest_amount'];
-
-            //         $this->trajectoryInvestAmount = (float) $this->trajectoryInvestAmount + $data['amount'];
-
-            //         $this->transactions[$date]['amount'] = (float) $data['amount'];
-
-            //         return $this->generateTransaction($data, $date);
-            //     } else if ($this->monitoringDays < (int) $data['consecutive_days']) {
-            //         $this->monitoringDays++;
-
-            //         return true;
-            //     }
-            // } else if ((int) $data['consecutive_days'] === 0) {//Create Transaction
-            //     $data['amount'] = (float) $data['trajectory_invest_amount'];
-
-            //     $this->trajectoryInvestAmount = (float) $this->trajectoryInvestAmount + $data['amount'];
-
-            //     $this->transactions[$date]['amount'] = (float) $data['amount'];
-
-            //     return $this->generateTransaction($data, $date);
-            // }
-
-            // return true;
+            return $this->generateTransaction($data, $date);
         }
 
         $this->addResponse('Transaction with ' . $date . ' not found!', 1);
@@ -125,6 +88,7 @@ class Sip extends MfStrategies
         $this->transactions[$date]['type'] = 'buy';
         $this->transactions[$date]['via_strategies'] = true;
         $this->transactions[$date]['date'] = $date;
+        $this->transactions[$date]['strategy_id'] = (int) $data['strategy_id'];
 
         if (!$this->transactionPackage->addMfTransaction($this->transactions[$date])) {
             $this->addResponse(
@@ -135,13 +99,6 @@ class Sip extends MfStrategies
 
             return false;
         }
-
-        // $this->monitoringDays = 0;
-
-        // if ($this->transactions[$date]['sip'] === true) {
-        //     $this->trajectoryMaxInvestAmount = 0;
-        //     $this->trajectoryInvestAmount = 0;
-        // }
 
         return true;
     }
@@ -205,17 +162,6 @@ class Sip extends MfStrategies
 
             if ($data['schedule'] === 'weekly') {
                 if (in_array($date->dayOfWeek(), $data['weekly_days'])) {
-                    // if (!isset($this->transactions[$dateString])) {
-                    //     $this->transactions[$dateString] = [];
-                    // } else {
-                    //     //If you are buying on the day which is also the start day of buy, this will overwrite the buy order,
-                    //     //to avoid that the workaround is to buy via transact mode and then create strategy of buy
-                    //     //or the date of buy will be calculated from the next date.
-                    //     if ($this->transactions[$dateString]['type'] === 'buy') {
-                    //         continue;
-                    //     }
-                    // }
-
                     $this->totalTransactionsCount++;
                     $this->transactionsCount['buy']++;
                     $this->transactions[$dateString]['type'] = 'buy';
@@ -246,16 +192,6 @@ class Sip extends MfStrategies
             } else if ($data['schedule'] === 'monthly') {
                 if (in_array($date->month, $data['monthly_months'])) {
                     if ($date->day == $data['monthly_day']) {
-                        // if (!isset($this->transactions[$dateString])) {
-                        //     $this->transactions[$dateString] = [];
-                        // } else {
-                        //     //If you are buying on the day which is also the start day of buy, this will overwrite the buy order,
-                        //     //to avoid that the workaround is to buy via transact mode and then create strategy of buy
-                        //     //or the date of buy will be calculated from the next date.
-                        //     if ($this->transactions[$dateString]['type'] === 'buy') {
-                        //         continue;
-                        //     }
-                        // }
                         //If transaction is happening on Sunday, move it to Monday.
                         if ($date->englishDayOfWeek === 'Sunday') {
                             $date = $date->addDay();
@@ -530,10 +466,6 @@ class Sip extends MfStrategies
             }
 
             $data['trajectory_percent'] = (float) abs((int) $data['trajectory_percent']);
-            // if ($data['trajectory'] === 'down') {
-            //     $data['trajectory_percent'] = -$data['trajectory_percent'];
-            // }
-
             $data['trajectory_max_invest_amount'] = (float) $data['trajectory_max_invest_amount'];
 
             if ($data['trajectory_max_invest_amount'] === 0) {
